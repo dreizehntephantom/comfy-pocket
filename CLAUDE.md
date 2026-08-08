@@ -90,14 +90,20 @@ Two ways of building the graph coexist:
 - **Template-patching** (`run_workflow.py`, `_ip`, `_ref`): deep-copy `workflow_api*.json` per image and patch node inputs by matching `class_type`.
 - **Inline construction** (`run_depth.py`, `run_canny.py`): the whole graph is a dict literal in `build(seed)`, no template file.
 
-### The A1111/Forge parity layer
+### The tensor.art parity layer
 
-The reason this graph exists at all. It depends on custom nodes in `ComfyUI/custom_nodes/`:
+The reason this graph exists at all. Note the history, because it explains why the code looks the way it does:
 
-- **`ComfyUI_smZNodes`** → the `smZ Settings` node. Every render script queries the live `/object_info` to fill **all** of that node's optional inputs with their declared defaults, then applies a curated override set: `RNG=cpu`, `ENSD=31337`, `eta=1.0`, `enable_emphasis=True`, `Use CFGDenoiser`, `sgm_noise_multiplier`. Three of these read env vars for experiments: `RNG`, `CFGD`, `SGM`. Reading defaults off the live server rather than hardcoding them is what keeps the graph working across smZNodes updates — keep it that way.
-- **`ComfyUI_ADV_CLIP_emb`** → `BNK_CLIPTextEncodeAdvanced` with `weight_interpretation: A1111`, `token_normalization: none`.
-- **`comfyui_lora_tag_loader`** → `LoraTagLoader`, so loras are inline `<lora:NAME:WEIGHT>` tags in A1111 prompt syntax rather than graph nodes.
+The graph originally carried a `smZ Settings` node (from `ComfyUI_smZNodes`) plus `weight_interpretation: A1111`, on the assumption that tensor.art ran an A1111/Forge backend. **Patch 1 (2026-08-08) removed all of that** — tensor.art turns out to run ComfyUI itself, so the node was pulling output *away* from the target and costing sharpness. Measured on fixed seed/prompt, output went from visibly softer than the reference to indistinguishable from it.
+
+What actually provides parity now:
+
+- **`ComfyUI_ADV_CLIP_emb`** → `BNK_CLIPTextEncodeAdvanced` with `token_normalization: none` and **`weight_interpretation: comfy`** (was `A1111`). Prompt-weight syntax is unchanged; the strength curve differs slightly.
+- **`comfyui_lora_tag_loader`** → `LoraTagLoader`, so loras are inline `<lora:NAME:WEIGHT>` tags rather than graph nodes. KSampler now takes `model` straight from this node.
+- Sampling: `euler_ancestral` / `normal`, `CLIPSetLastLayer -2`, VAE `sdxl-vae-fp16-fix`.
 - Also present: `comfyui_controlnet_aux` (depth/canny preprocessors), `ComfyUI_IPAdapter_plus`, `ComfyUI-Inpaint-CropAndStitch`, `comfyui-inpaint-nodes`, `ComfyUI-Manager`, `ComfyUI_experiments`.
+
+`ComfyUI_smZNodes` is still installed but **unused** — nothing references it. Don't reintroduce it, and don't restore the old `RNG`/`CFGD`/`SGM` env-var overrides or `ENSD=31337`: those went with it, which is why a given seed no longer reproduces pre-patch images.
 
 ### Node-id contracts (fragile — preserve when editing graphs)
 

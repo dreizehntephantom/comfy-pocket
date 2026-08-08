@@ -69,10 +69,6 @@ def post(path, obj):
 def get(path):
     return json.load(urllib.request.urlopen(HOST + path, timeout=120))
 
-def envbool(name, default):
-    v = os.environ.get(name)
-    return default if v is None else v not in ("0", "false", "False")
-
 # --- настройки ---
 c = load_config()
 model = c.get("model", "anillustriousXL_v14")
@@ -139,16 +135,6 @@ if c.get("canny_fit", c.get("depth_fit", "donor")).lower() != "config":
 
 today = datetime.datetime.now().strftime("%Y-%m-%d")
 
-# --- парити-слой: все опции smZ Settings по умолчанию + курируемые оверрайды ---
-opt = get("/object_info/smZ%20Settings")["smZ Settings"]["input"]["optional"]
-smz = {}
-for key, spec in opt.items():
-    meta = spec[1] if len(spec) > 1 and isinstance(spec[1], dict) else {}
-    smz[key] = meta["default"] if "default" in meta else (spec[0][0] if isinstance(spec[0], list) and spec[0] else "")
-smz.update({"RNG": os.environ.get("RNG", "cpu"), "ENSD": 31337, "eta": 1.0, "enable_emphasis": True,
-            "Use CFGDenoiser": envbool("CFGD", True), "sgm_noise_multiplier": envbool("SGM", True)})
-smz["*"] = ["10031", 0]
-
 # --- ControlNet-модель: ищем canny для SDXL ---
 names = get("/object_info/ControlNetLoader")["ControlNetLoader"]["input"]["required"]["control_net_name"][0]
 cn_name = next((n for n in names if "canny" in n.lower() and "sdxl" in n.lower()), None)
@@ -161,13 +147,12 @@ def build(seed):
       "10002": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": model}},
       "10031": {"class_type": "LoraTagLoader", "inputs": {"text": f"<lora:{lora}:{lora_w}>",
                 "model": ["10002", 0], "clip": ["10002", 1]}},
-      "10090": {"class_type": "smZ Settings", "inputs": smz},
       "10032": {"class_type": "VAELoader", "inputs": {"vae_name": "sdxl-vae-fp16-fix.safetensors"}},
       "10033": {"class_type": "CLIPSetLastLayer", "inputs": {"stop_at_clip_layer": -2, "clip": ["10031", 1]}},
       "10051": {"class_type": "BNK_CLIPTextEncodeAdvanced", "inputs": {"text": pos, "clip": ["10033", 0],
-                "token_normalization": "none", "weight_interpretation": "A1111"}},
+                "token_normalization": "none", "weight_interpretation": "comfy"}},
       "10052": {"class_type": "BNK_CLIPTextEncodeAdvanced", "inputs": {"text": neg, "clip": ["10033", 0],
-                "token_normalization": "none", "weight_interpretation": "A1111"}},
+                "token_normalization": "none", "weight_interpretation": "comfy"}},
       "10088": {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
       "10109": {"class_type": "LoadImage", "inputs": {"image": donor_name}},
       "10117": {"class_type": "CannyEdgePreprocessor",
@@ -180,7 +165,7 @@ def build(seed):
                            "positive": ["10051", 0], "negative": ["10052", 0]}},
       "11002": {"class_type": "KSampler", "inputs": {"seed": seed, "steps": steps, "cfg": cfg_scale,
                 "sampler_name": "euler_ancestral", "scheduler": "normal", "denoise": 1.0,
-                "model": ["10090", 0], "positive": ["10125", 0], "negative": ["10125", 1],
+                "model": ["10031", 0], "positive": ["10125", 0], "negative": ["10125", 1],
                 "latent_image": ["10088", 0]}},
       "11029": {"class_type": "VAEDecode", "inputs": {"samples": ["11002", 0], "vae": ["10032", 0]}},
       "12006": {"class_type": "SaveImage", "inputs": {"filename_prefix": today + "/canny", "images": ["11029", 0]}},
@@ -214,6 +199,10 @@ for i in range(count):
             full = os.path.join(OUTROOT, img.get("subfolder", ""), img.get("filename"))
             # карта контуров не копится в output — она одна и перезаписывается
             if os.path.basename(full).startswith("cannymap"):
+                # При count>1 препроцессор кешируется: ComfyUI отдаёт то же имя,
+                # а файла уже нет — карту забрали на первой картинке. Это не ошибка.
+                if not os.path.exists(full):
+                    continue
                 try:
                     os.makedirs(CANNYDIR, exist_ok=True)
                     shutil.copy2(full, MAPFILE)

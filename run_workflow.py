@@ -34,10 +34,6 @@ def post(path, obj):
 def get(path):
     return json.load(urllib.request.urlopen(HOST + path, timeout=120))
 
-def envbool(name, default):
-    v = os.environ.get(name)
-    return default if v is None else v not in ("0", "false", "False")
-
 # --- настройки ---
 c = load_config()
 model = c.get("model", "newgroundsMix_v20")
@@ -57,10 +53,6 @@ base_seed = int(sys.argv[1]) if len(sys.argv) > 1 else None
 today = datetime.datetime.now().strftime("%Y-%m-%d")
 
 template = json.load(open(os.path.join(HERE, "workflow_api.json"), encoding="utf-8"))
-oi = get("/object_info")
-opt = oi["smZ Settings"]["input"]["optional"]
-OVR = {"RNG": os.environ.get("RNG", "cpu"), "ENSD": 31337, "eta": 1.0, "enable_emphasis": True,
-       "Use CFGDenoiser": envbool("CFGD", True), "sgm_noise_multiplier": envbool("SGM", True)}
 
 print(f"Модель={model} | Лора={lora}:{lora_w} | steps={steps} cfg={cfg_scale} {width}x{height} | картинок={count}")
 folders = []
@@ -73,14 +65,6 @@ for i in range(count):
             node["inputs"]["ckpt_name"] = model
         elif ct == "LoraTagLoader":
             node["inputs"]["text"] = f"<lora:{lora}:{lora_w}>"
-        elif ct == "smZ Settings":
-            link = node["inputs"]["*"]
-            full = {}
-            for key, spec in opt.items():
-                meta = spec[1] if len(spec) > 1 and isinstance(spec[1], dict) else {}
-                full[key] = meta["default"] if "default" in meta else (spec[0][0] if isinstance(spec[0], list) and spec[0] else "")
-            full.update(OVR); full["*"] = link
-            node["inputs"] = full
         elif ct == "BNK_CLIPTextEncodeAdvanced":
             if nid == "10051" and pos is not None:
                 node["inputs"]["text"] = pos

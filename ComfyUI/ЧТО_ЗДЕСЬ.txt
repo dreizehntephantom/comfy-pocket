@@ -21,10 +21,13 @@ python_embeded и update — все три кладутся рядом.
 Без них наши скрипты не заработают. Кладутся в папку custom_nodes,
 каждое своей папкой.
 
-Держат стиль и совместимость промптов:
+Держат стиль и разбор промптов:
   https://github.com/BlenderNeko/ComfyUI_ADV_CLIP_emb
   https://github.com/badjeff/comfyui_lora_tag_loader
+
+Больше не используется, но пусть лежит (удалять не надо):
   https://github.com/shiimizu/ComfyUI_smZNodes
+  Его узел убрали в обновлении 1 — он мылил картинку.
 
 Нужны панели в фотошопе:
   https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch

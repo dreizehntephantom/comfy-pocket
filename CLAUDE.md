@@ -50,9 +50,12 @@ Run everything with the embedded interpreter `python_embeded\python.exe`; there 
 **Start the server first** (all render scripts are HTTP clients and do nothing without it):
 
 ```
-ЗАПУСК_ComfyUI.bat
+ЗАПУСК.exe          — точка входа: обновления + мост + ComfyUI
 ```
-It starts the Photoshop bridge in a second window (port 8189), then ComfyUI on 8188 with `--auto-launch`, teeing the server log to `logs\comfyui_server.log`. Manual equivalent:
+The EXE is deliberately dumb — it only calls `python_embeded\python.exe launcher.py`. All behaviour lives in `launcher.py`: read `ВЕРСИЯ.txt`, ask GitHub what's new, apply pending patches, then start the Photoshop bridge in a second window (port 8189) and ComfyUI on 8188 with `--auto-launch`, teeing the server log to `logs\comfyui_server.log`.
+
+`ЗАПУСК_ComfyUI.bat` still exists and does the launch half without the update check. Manual equivalents:
+`.\python_embeded\python.exe launcher.py [--без-обновлений]`
 `.\python_embeded\python.exe -s ComfyUI\main.py --port 8188 --auto-launch`
 
 **Render** (server must already be up). Each `.bat` is a thin wrapper over its script; the optional first arg is an integer seed (omitted = random, and with `count>1` a given seed increments per image while a random one is re-rolled):
@@ -66,6 +69,7 @@ It starts the Photoshop bridge in a second window (port 8189), then ComfyUI on 8
 | `РЕНДЕР_REF.bat` | `run_workflow_ref.py` | `config_ref.txt` | reference-only |
 | `МОСТ_PS.bat` → `ps_bridge.bat` | `ps_bridge.py` | `config_ps.txt` | Photoshop inpaint bridge (port 8189) |
 | `СОБРАТЬ_ЛОГИ.bat` | `_diag.py` | — | collect diagnostics + zip `logs\` to Desktop |
+| `ОТКАТ.bat` | `launcher.py --откат` | — | undo the last applied patch |
 
 `ПОЗА`/`КОНТУР` also accept an image dragged onto the `.bat`. All scripts read the prompt from `prompt.txt` and `negative.txt`.
 
@@ -120,6 +124,19 @@ Subtleties worth preserving in `run_inpaint()`:
 - `context_factor()` converts "N pixels of context" into the multiplier the crop node actually wants.
 - The returned crop is `bbox + blend` px, and the response reports both the rectangle origin (`x`/`y`) and where opaque pixels start inside it (`content_x`/`content_y`) — Photoshop positions layers by opaque bounds, so without the latter the layer lands offset by the feather width.
 - `_last_mask.png` is written next to the script each run for eyeballing mask alignment.
+
+### Update mechanism (`launcher.py`)
+
+Patches are plain zips listed in `patches/index.json`, fetched anonymously from `raw.githubusercontent.com/dreizehntephantom/comfy-pocket/main/patches/` (the repo is public precisely so updating never asks for a password). Files inside the zip sit at paths relative to the build root; everything in a patch is applied — there is no "optional" tier.
+
+Invariants worth preserving:
+- **Stdlib only.** Adding a dependency here would break portability. `POCKET_URL` overrides the base URL for testing against a fake server.
+- **Zip entries are untrusted.** `safe_members()` rejects `..`, drive letters, and anything under `NEVER_TOUCH` (output, input, refs, donors, logs, backups) — a downloaded archive must not be able to write outside the build or over the user's images.
+- **Back up before replacing.** Originals go to `бэкап\до_обновления_NNN_<timestamp>\` with a `что_было.json` recording what was replaced vs newly added; `rollback()` uses it to restore and to delete additions.
+- **A rolled-back patch is never reinstalled.** Its number goes into `бэкап\не_ставить.txt`, and `update()` stops at the first rejected patch rather than skipping over it — later patches assume the earlier one is present.
+- `ЧТО_ДЕЛАТЬ.txt` inside a zip is shown to the user, never written to disk.
+
+`сборка\` holds the EXE build (icon, stub, build script). Rebuilding should be rare — see `сборка\ЧТО_ЗДЕСЬ.txt` for why the EXE is deliberately empty.
 
 ### Logging and support flow
 

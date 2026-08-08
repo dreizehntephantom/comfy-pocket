@@ -1,3 +1,10 @@
 {
-  "patches": []
+  "patches": [
+    {
+      "n": 1,
+      "file": "patch-001.zip",
+      "sha256": "df6a54f5bc0043bb5fb4e21076110e2404e98ab97ce61dd2d8e8d8640bd19565",
+      "title": "картинки стали чётче"
+    }
+  ]
 }

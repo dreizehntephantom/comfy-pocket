@@ -1,0 +1,35 @@
+{
+  "id": "comfyinpaint",
+  "name": "ComfyUI Inpaint",
+  "version": "1.0.0",
+  "main": "index.html",
+  "manifestVersion": 4,
+  "host": {
+    "app": "PS",
+    "minVersion": "23.3.0",
+    "data": {
+      "apiVersion": 2,
+      "loadEvent": "startup"
+    }
+  },
+  "requiredPermissions": {
+    "localFileSystem": "fullAccess",
+    "network": {
+      "domains": [
+        "http://127.0.0.1:8189",
+        "http://localhost:8189"
+      ]
+    }
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "comfyinpaint",
+      "label": { "default": "ComfyUI Inpaint" },
+      "minimumSize": { "width": 280, "height": 380 },
+      "maximumSize": { "width": 2000, "height": 2000 },
+      "preferredDockedSize": { "width": 320, "height": 560 },
+      "preferredFloatingSize": { "width": 320, "height": 560 }
+    }
+  ]
+}

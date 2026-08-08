@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ComfyUI Inpaint</title>
+  <style>
+    html, body { height: 100%; }
+    body { margin: 0; padding: 10px 10px 14px; overflow-y: auto; }
+
+    .row { margin-bottom: 10px; }
+    .row > sp-label { display: block; margin-bottom: 2px; }
+    .two { display: flex; gap: 8px; }
+    .two > div { flex: 1; min-width: 0; }
+    sp-picker, sp-textfield, sp-textarea, sp-slider { width: 100%; }
+    /* места стало больше — подсказка уехала внутрь поля, заголовок короткий */
+    #prompt { height: 110px; }
+    #negative { height: 88px; }
+
+    /* Кнопку собираем сами: внутрь родной sp-button заливку не положить —
+       она рисуется системой и вложенные полоски игнорирует. */
+    .buttons { display: flex; gap: 6px; margin-top: 12px; align-items: center; }
+    #go {
+      flex: 1; height: 34px; position: relative; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      background: #2680eb; color: #fff; border-radius: 16px;
+      font-weight: 700; font-size: 12px; letter-spacing: 0.4px;
+      cursor: pointer; user-select: none;
+    }
+    #go:hover { background: #1473e6; }
+    #go.busy { background: #4a4a4a; cursor: default; }
+    #goFill {
+      position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+      background: rgba(45, 157, 120, 0.5); transition: width 0.25s linear;
+      pointer-events: none;
+    }
+    #goBar {
+      position: absolute; left: 0; bottom: 0; height: 3px; width: 0%;
+      background: #3ab57a; transition: width 0.25s linear;
+      pointer-events: none;
+    }
+    #goText { position: relative; pointer-events: none; }
+    #cancel { display: none; }
+
+    #status { margin-top: 10px; min-height: 34px; white-space: pre-wrap; }
+    #status.err { color: #ec5b62; }
+    #status.ok { color: #3ab57a; }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <sp-textarea id="prompt" placeholder="пусто = взять из prompt.txt">
+      <sp-label slot="label">Промпт</sp-label>
+    </sp-textarea>
+  </div>
+
+  <div class="row">
+    <sp-textarea id="negative" placeholder="пусто = взять из negative.txt">
+      <sp-label slot="label">Негатив</sp-label>
+    </sp-textarea>
+  </div>
+
+  <div class="row">
+    <sp-label>Модель</sp-label>
+    <sp-picker id="model" size="m"><sp-menu slot="options"></sp-menu></sp-picker>
+  </div>
+
+  <div class="row">
+    <sp-label>VAE</sp-label>
+    <sp-picker id="vae" size="m"><sp-menu slot="options"></sp-menu></sp-picker>
+  </div>
+
+  <div class="row two">
+    <div style="flex: 2">
+      <sp-label>Лора</sp-label>
+      <sp-picker id="lora" size="m"><sp-menu slot="options"></sp-menu></sp-picker>
+    </div>
+    <div>
+      <sp-label>Вес</sp-label>
+      <sp-textfield id="loraWeight" value="0.8"></sp-textfield>
+    </div>
+  </div>
+
+  <div class="row">
+    <sp-label>Негативный эмбеддинг</sp-label>
+    <sp-picker id="embedding" size="m"><sp-menu slot="options"></sp-menu></sp-picker>
+  </div>
+
+  <div class="row two">
+    <div>
+      <sp-label>Контекст вокруг маски</sp-label>
+      <sp-picker id="context" size="m">
+        <sp-menu slot="options">
+          <sp-menu-item value="32">32 px</sp-menu-item>
+          <sp-menu-item value="64" selected>64 px</sp-menu-item>
+          <sp-menu-item value="128">128 px</sp-menu-item>
+          <sp-menu-item value="256">256 px</sp-menu-item>
+        </sp-menu>
+      </sp-picker>
+    </div>
+    <div>
+      <sp-label>Разрешение</sp-label>
+      <sp-picker id="target" size="m">
+        <sp-menu slot="options">
+          <sp-menu-item value="0">Оригинал</sp-menu-item>
+          <sp-menu-item value="512">512</sp-menu-item>
+          <sp-menu-item value="768">768</sp-menu-item>
+          <sp-menu-item value="1024" selected>1024</sp-menu-item>
+          <sp-menu-item value="1536">1536</sp-menu-item>
+        </sp-menu>
+      </sp-picker>
+    </div>
+  </div>
+
+  <div class="row">
+    <sp-label id="blendLabel">Растушёвка края: 8 px</sp-label>
+    <sp-slider id="blend" min="0" max="64" step="1" value="8"></sp-slider>
+  </div>
+
+  <div class="row two">
+    <div>
+      <sp-label>Форма затухания</sp-label>
+      <sp-picker id="shape" size="m">
+        <sp-menu slot="options">
+          <sp-menu-item value="gauss" selected>Гаусс (плавно)</sp-menu-item>
+          <sp-menu-item value="linear">Линейка</sp-menu-item>
+        </sp-menu>
+      </sp-picker>
+    </div>
+    <div>
+      <sp-label>Denoise</sp-label>
+      <sp-textfield id="denoise" value="0.6"></sp-textfield>
+    </div>
+  </div>
+
+  <div class="row two">
+    <div>
+      <sp-label>Steps</sp-label>
+      <sp-textfield id="steps" value="25"></sp-textfield>
+    </div>
+    <div>
+      <sp-label>CFG</sp-label>
+      <sp-textfield id="cfg" value="5"></sp-textfield>
+    </div>
+  </div>
+
+  <div class="row two">
+    <div>
+      <sp-label>Вариантов</sp-label>
+      <sp-picker id="count" size="m">
+        <sp-menu slot="options">
+          <sp-menu-item value="1" selected>1</sp-menu-item>
+          <sp-menu-item value="2">2</sp-menu-item>
+          <sp-menu-item value="3">3</sp-menu-item>
+          <sp-menu-item value="4">4</sp-menu-item>
+        </sp-menu>
+      </sp-picker>
+    </div>
+    <div>
+      <sp-label>Сид (пусто = случайный)</sp-label>
+      <sp-textfield id="seed" placeholder="случайный"></sp-textfield>
+    </div>
+  </div>
+
+  <div class="buttons">
+    <div id="go">
+      <span id="goFill"></span>
+      <span id="goBar"></span>
+      <span id="goText">ГЕНЕРАЦИЯ</span>
+    </div>
+    <sp-button id="cancel" variant="secondary" quiet>Отмена</sp-button>
+  </div>
+
+  <sp-body id="status" size="S">Готов. Выдели область и жми.</sp-body>
+
+  <script src="main.js"></script>
+</body>
+</html>

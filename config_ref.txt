@@ -1,0 +1,20 @@
+# ===== НАСТРОЙКИ REFERENCE-ONLY РЕНДЕРА =====
+# Как config.txt, плюс ref_dir — папка с картинками-референсами.
+# Для КАЖДОЙ картинки из ref_dir делается count вариаций.
+# Промпт/негатив берутся из тех же prompt.txt / negative.txt.
+
+model = anillustriousXL_v14
+lora = sasaminanime
+lora_weight = 0.9
+
+steps = 25
+cfg = 4
+width = 1024
+height = 1536
+
+# Папка, ОТКУДА брать картинки-референсы (png/jpg/jpeg/webp/bmp).
+# Все картинки из неё пойдут в дело. Путь без кавычек.
+ref_dir = refs
+
+# Сколько вариаций на КАЖДУЮ картинку из ref_dir.
+count = 1

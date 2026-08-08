@@ -1,0 +1,111 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "anillustriousXL_v14.safetensors" }
+  },
+  "40": {
+    "class_type": "DifferentialDiffusion",
+    "inputs": { "model": ["1", 0] }
+  },
+  "2": {
+    "class_type": "LoraTagLoader",
+    "inputs": {
+      "model": ["40", 0],
+      "clip": ["1", 1],
+      "text": "<lora:sasaminanime:0.8>"
+    }
+  },
+  "3": {
+    "class_type": "CLIPSetLastLayer",
+    "inputs": { "clip": ["2", 1], "stop_at_clip_layer": -2 }
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "sdxl-vae-fp16-fix.safetensors" }
+  },
+  "7": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "example.png" }
+  },
+  "70": {
+    "class_type": "LoadImageMask",
+    "inputs": { "image": "example_mask.png", "channel": "red" }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "", "clip": ["3", 0] }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "", "clip": ["3", 0] }
+  },
+  "60": {
+    "class_type": "InpaintCropImproved",
+    "inputs": {
+      "image": ["7", 0],
+      "mask": ["70", 0],
+      "downscale_algorithm": "bilinear",
+      "upscale_algorithm": "bicubic",
+      "preresize": false,
+      "preresize_mode": "ensure minimum resolution",
+      "preresize_min_width": 1024,
+      "preresize_min_height": 1024,
+      "preresize_max_width": 16384,
+      "preresize_max_height": 16384,
+      "mask_fill_holes": true,
+      "mask_expand_pixels": 0,
+      "mask_invert": false,
+      "mask_blend_pixels": 32,
+      "mask_hipass_filter": 0.1,
+      "extend_for_outpainting": false,
+      "extend_up_factor": 1.0,
+      "extend_down_factor": 1.0,
+      "extend_left_factor": 1.0,
+      "extend_right_factor": 1.0,
+      "context_from_mask_extend_factor": 1.5,
+      "output_resize_to_target_size": true,
+      "output_target_width": 1024,
+      "output_target_height": 1024,
+      "output_padding": "32",
+      "device_mode": "gpu (much faster)"
+    }
+  },
+  "50": {
+    "class_type": "InpaintModelConditioning",
+    "inputs": {
+      "positive": ["5", 0],
+      "negative": ["6", 0],
+      "vae": ["4", 0],
+      "pixels": ["60", 1],
+      "mask": ["60", 2],
+      "noise_mask": true
+    }
+  },
+  "10": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["2", 0],
+      "seed": 0,
+      "steps": 25,
+      "cfg": 5,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "normal",
+      "positive": ["50", 0],
+      "negative": ["50", 1],
+      "latent_image": ["50", 2],
+      "denoise": 0.6
+    }
+  },
+  "11": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["10", 0], "vae": ["4", 0] }
+  },
+  "61": {
+    "class_type": "InpaintStitchImproved",
+    "inputs": { "stitcher": ["60", 0], "inpainted_image": ["11", 0] }
+  },
+  "12": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["61", 0], "filename_prefix": "inpaint/ps" }
+  }
+}

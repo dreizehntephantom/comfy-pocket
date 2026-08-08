@@ -1,0 +1,1 @@
+embedding:NEGATIVE_HANDS, lowres, bad quality, worst quality, bad anatomy, sketch, jpeg artifacts, ugly, poorly drawn, censor,blurry, watermark, artistic failure, artistic error, bad proportions, bad perspective, displeasing, very displeasing, oldest, child, childish, mosaic_censoring,  censored, english_text, , greyscale lineart monochrome ,

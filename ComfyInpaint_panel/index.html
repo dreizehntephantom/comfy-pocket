@@ -133,6 +133,58 @@
   </div>
 
   <div class="row two">
+    <div style="flex: 2">
+      <sp-label>Держать форму</sp-label>
+      <sp-picker id="control" size="m">
+        <sp-menu slot="options">
+          <sp-menu-item value="нет" selected>Нет</sp-menu-item>
+          <sp-menu-item value="depth">По объёму (depth)</sp-menu-item>
+        </sp-menu>
+      </sp-picker>
+    </div>
+    <div>
+      <sp-label>Сила</sp-label>
+      <sp-textfield id="controlStrength" value="0.6"></sp-textfield>
+    </div>
+  </div>
+
+  <div class="row">
+    <sp-label>Карту снимать</sp-label>
+    <sp-picker id="controlSrc" size="m" disabled>
+      <sp-menu slot="options">
+        <sp-menu-item value="canvas" selected>Со всей картинки — объём правильнее</sp-menu-item>
+        <sp-menu-item value="selection">Только с выделения — деталей больше</sp-menu-item>
+      </sp-menu>
+    </sp-picker>
+  </div>
+
+  <div class="row two">
+    <div style="flex: 2">
+      <sp-label>Держать палитру</sp-label>
+      <sp-picker id="color" size="m">
+        <sp-menu slot="options">
+          <sp-menu-item value="нет" selected>Нет</sp-menu-item>
+          <sp-menu-item value="color">По цвету</sp-menu-item>
+        </sp-menu>
+      </sp-picker>
+    </div>
+    <div>
+      <sp-label>Сила</sp-label>
+      <sp-textfield id="colorStrength" value="1.5"></sp-textfield>
+    </div>
+  </div>
+
+  <div class="row">
+    <sp-label>Палитру брать</sp-label>
+    <sp-picker id="colorSrc" size="m" disabled>
+      <sp-menu slot="options">
+        <sp-menu-item value="selection" selected>С выделения — можно мазнуть цветом заранее</sp-menu-item>
+        <sp-menu-item value="canvas">Со всей картинки — цвета сцены</sp-menu-item>
+      </sp-menu>
+    </sp-picker>
+  </div>
+
+  <div class="row two">
     <div>
       <sp-label>Steps</sp-label>
       <sp-textfield id="steps" value="25"></sp-textfield>

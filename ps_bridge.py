@@ -185,6 +185,26 @@ def resolve_model(name):
     raise RuntimeError(f"Модель '{name}' не найдена. Есть: " + ", ".join(avail[:6]))
 
 
+def resolve_controlnet(kind, need_sdxl=True):
+    # Имя файла не хардкодим: у соседа он может лежать под другим именем.
+    # Ищем по словам, как это делают РЕНДЕР_ПОЗА и РЕНДЕР_КОНТУР.
+    # need_sdxl=False — для цветового адаптера: он называется t2i-adapter_xl_...,
+    # слова "sdxl" в имени нет.
+    try:
+        oi = comfy_get("/object_info/ControlNetLoader")
+        avail = oi["ControlNetLoader"]["input"]["required"]["control_net_name"][0]
+    except Exception:
+        avail = []
+    hit = next((n for n in avail if kind in n.lower()
+                and (not need_sdxl or "sdxl" in n.lower())), None)
+    if hit:
+        return hit
+    raise RuntimeError(
+        f"Не нашёл модель ControlNet со словом '{kind}' в имени. Она кладётся в "
+        f"ComfyUI\\models\\controlnet\\ — что именно, написано там в ЧТО_ЗДЕСЬ.txt. "
+        + ("Сейчас там: " + ", ".join(avail) if avail else "Сейчас там пусто."))
+
+
 def lora_tag(name, weight):
     # LoraTagLoader ждёт имя без расширения, как в prompt.txt у Forge
     if not name:
@@ -217,12 +237,36 @@ def get_lists():
         vaes = oi["VAELoader"]["input"]["required"]["vae_name"][0]
     except Exception as e:
         print("  не забрал список VAE:", e, flush=True)
+    # Есть ли чем держать форму. Пусто = панель просто не предложит этот пункт,
+    # вместо того чтобы дать нажать и упасть на генерации.
+    # Нужны обе половины: узел, который РИСУЕТ карту глубины (из
+    # comfyui_controlnet_aux), и модель, которая по ней держит форму.
     cfg = load_config()
+    depth_cn = ""
+    try:
+        if not comfy_get("/object_info/MiDaS-DepthMapPreprocessor"):
+            raise RuntimeError("нет узла MiDaS-DepthMapPreprocessor "
+                               "(папка custom_nodes\\comfyui_controlnet_aux)")
+        depth_cn = resolve_controlnet("depth")
+    except Exception as e:
+        print("  контроль по объёму недоступен:", e, flush=True)
+    color_cn = ""
+    try:
+        if not comfy_get("/object_info/ColorPreprocessor"):
+            raise RuntimeError("нет узла ColorPreprocessor "
+                               "(папка custom_nodes\\comfyui_controlnet_aux)")
+        color_cn = resolve_controlnet(cfg.get("color_model", "t2i"), need_sdxl=False)
+    except Exception as e:
+        print("  контроль по цвету недоступен:", e, flush=True)
     return {
         "loras": loras,
         "embeddings": embs,
         "models": models,
         "vaes": vaes,
+        "depth_cn": depth_cn,
+        "depth_strength": cfg.get("depth_strength", "0.6"),
+        "color_cn": color_cn,
+        "color_strength": cfg.get("color_strength", "1.5"),
         "vae": cfg.get("vae", ""),
         "model": cfg.get("model", ""),
         "lora": cfg.get("lora", ""),
@@ -360,6 +404,105 @@ def run_inpaint(p):
     k10["cfg"] = cfg_scale
     k10["denoise"] = denoise
 
+    # Куда сейчас подключено условие. Каждый включённый контроль вклинивается
+    # в эту пару и передаёт её дальше, поэтому их можно ставить в любом наборе.
+    cond_pos, cond_neg = ["5", 0], ["6", 0]
+
+    # --- держать форму по объёму (ControlNet depth) ---
+    # Карту глубины снимаем с ВЫРЕЗАННОГО куска (выход 60->1). Это исходные
+    # пиксели до зашумления, то есть модель видит настоящее тело, а не то,
+    # что сама рисует. С полного холста брать нельзя: сэмплер работает с
+    # вырезкой, размеры не совпадут и карта ляжет мимо.
+    # Узлы добавляются, только когда просят: нет контролнета в папке — работает
+    # всё остальное, как раньше.
+    control = (p.get("control") or "нет").strip().lower()
+    csrc = (p.get("control_src") or "canvas").strip().lower()
+    cstr = float(p.get("control_strength") or cfg.get("depth_strength", 0.6))
+    if control == "depth":
+        cn_name = resolve_controlnet("depth")
+        # a / bg_threshold / resolution — те же, что в run_depth.py: настройка
+        # обкатана, разъезжаться этим двум местам незачем.
+        if csrc == "selection":
+            # Карта снимается с самой вырезки. Диапазон глубины уходит целиком
+            # на выделенный кусок — деталей больше. Но MiDaS видит фрагмент без
+            # контекста и может не понять, что перед ним человек.
+            wf["80"] = {"class_type": "MiDaS-DepthMapPreprocessor",
+                        "inputs": {"a": 6.28, "bg_threshold": 0.1, "resolution": 512,
+                                   "image": ["60", 1]}}
+            cn_img = ["80", 0]
+        else:
+            # Карта снимается со всего холста — MiDaS видит фигуру целиком и
+            # раскладывает объём правильно. Дальше из готовой карты вырезаем тот
+            # же кусок тем же узлом с теми же настройками: рамку он считает по
+            # маске и размеру холста, а не по пикселям, поэтому вырезка совпадёт
+            # с основной один в один.
+            wf["80"] = {"class_type": "MiDaS-DepthMapPreprocessor",
+                        "inputs": {"a": 6.28, "bg_threshold": 0.1, "resolution": 512,
+                                   "image": ["7", 0]}}
+            # Препроцессор отдаёт карту в своём разрешении — возвращаем к размеру
+            # холста, иначе второй вырезке не с чем будет совпадать.
+            wf["84"] = {"class_type": "ImageScale",
+                        "inputs": {"upscale_method": "bilinear", "width": W, "height": H,
+                                   "crop": "disabled", "image": ["80", 0]}}
+            c85 = dict(c60)
+            c85["image"] = ["84", 0]
+            wf["85"] = {"class_type": "InpaintCropImproved", "inputs": c85}
+            cn_img = ["85", 1]
+        wf["81"] = {"class_type": "ControlNetLoader",
+                    "inputs": {"control_net_name": cn_name}}
+        wf["82"] = {"class_type": "ControlNetApplyAdvanced",
+                    "inputs": {"strength": cstr, "start_percent": 0.0, "end_percent": 1.0,
+                               "control_net": ["81", 0], "image": cn_img,
+                               "positive": cond_pos, "negative": cond_neg}}
+        # Показываем ровно то, что ушло в ControlNet, а не промежуточную карту.
+        wf["83"] = {"class_type": "PreviewImage", "inputs": {"images": cn_img}}
+        cond_pos, cond_neg = ["82", 0], ["82", 1]
+        src_txt = "со всего холста" if csrc != "selection" else "с выделения"
+        print(f"  форма по объёму: {cn_name} | сила {cstr} | карта {src_txt}", flush=True)
+
+    # --- держать палитру (T2I-Adapter, цветовая сетка) ---
+    # Устроено зеркально глубине, но держит другое: не форму, а раскладку цвета
+    # и света. Мозаика грубая (8 клеток по короткой стороне), поэтому узор ткани
+    # ей не задать — только "здесь тёмно-красное, здесь светлое".
+    # Цепляется ПОСЛЕ глубины: включать можно оба сразу, они не спорят.
+    color = (p.get("color") or "нет").strip().lower()
+    lsrc = (p.get("color_src") or "selection").strip().lower()
+    lstr = float(p.get("color_strength") or cfg.get("color_strength", 1.5))
+    if color == "color":
+        cl_name = resolve_controlnet(cfg.get("color_model", "t2i"), need_sdxl=False)
+        if lsrc == "canvas":
+            # Палитра всей картинки, вырезанная по месту: новое встанет в цвета
+            # сцены и не будет выпадать из общего света.
+            wf["90"] = {"class_type": "ColorPreprocessor",
+                        "inputs": {"resolution": 512, "image": ["7", 0]}}
+            wf["94"] = {"class_type": "ImageScale",
+                        "inputs": {"upscale_method": "bilinear", "width": W, "height": H,
+                                   "crop": "disabled", "image": ["90", 0]}}
+            c95 = dict(c60)
+            c95["image"] = ["94", 0]
+            wf["95"] = {"class_type": "InpaintCropImproved", "inputs": c95}
+            cl_img = ["95", 1]
+        else:
+            # Палитра самой вырезки. Здесь и живёт главный приём: мазнул в
+            # фотошопе нужными цветами прямо по выделению — модель возьмёт
+            # ровно их и превратит мазки в настоящую вещь.
+            wf["90"] = {"class_type": "ColorPreprocessor",
+                        "inputs": {"resolution": 512, "image": ["60", 1]}}
+            cl_img = ["90", 0]
+        wf["91"] = {"class_type": "ControlNetLoader",
+                    "inputs": {"control_net_name": cl_name}}
+        wf["92"] = {"class_type": "ControlNetApplyAdvanced",
+                    "inputs": {"strength": lstr, "start_percent": 0.0, "end_percent": 1.0,
+                               "control_net": ["91", 0], "image": cl_img,
+                               "positive": cond_pos, "negative": cond_neg}}
+        wf["93"] = {"class_type": "PreviewImage", "inputs": {"images": cl_img}}
+        cond_pos, cond_neg = ["92", 0], ["92", 1]
+        lsrc_txt = "со всего холста" if lsrc == "canvas" else "с выделения"
+        print(f"  палитра: {cl_name} | сила {lstr} | сетка {lsrc_txt}", flush=True)
+
+    wf["50"]["inputs"]["positive"] = cond_pos
+    wf["50"]["inputs"]["negative"] = cond_neg
+
     print(f"  bbox={bw}x{bh} @({x0},{y0}) | контекст {context_px}px -> factor "
           f"{c60['context_from_mask_extend_factor']} | target={target or 'оригинал'} | "
           f"denoise={denoise} | растушёвка {blend}px {shape} | seed={seed}", flush=True)
@@ -391,12 +534,26 @@ def run_inpaint(p):
                 raise RuntimeError(f"{m[1].get('node_type')}: {m[1].get('exception_message')}")
         raise RuntimeError("Ошибка выполнения в ComfyUI")
 
-    shot = None
-    for _, out in entry.get("outputs", {}).items():
-        for im in out.get("images", []):
-            shot = im
+    # Результат берём у конкретного узла (12 = SaveImage), а не «последний
+    # попавшийся»: с включённым контролем картинок в ответе несколько.
+    outs = entry.get("outputs", {})
+    imgs = outs.get("12", {}).get("images") or []
+    shot = imgs[-1] if imgs else None
     if not shot:
         raise RuntimeError("ComfyUI не вернул картинку")
+
+    # Карту глубины кладём рядом со скриптом — по образцу _last_mask.png:
+    # посмотреть глазами, что модель вообще разглядела за объём.
+    for node, fname, what in (("83", "_last_depth.png", "карту глубины"),
+                              ("93", "_last_color.png", "цветовую сетку")):
+        im0 = (outs.get(node, {}).get("images") or [None])[0]
+        if not im0:
+            continue
+        try:
+            with open(os.path.join(HERE, fname), "wb") as f:
+                f.write(comfy_view(im0))
+        except Exception as e:
+            print(f"  {what} не сохранил:", e, flush=True)
 
     res = Image.open(io.BytesIO(comfy_view(shot))).convert("RGB")
 

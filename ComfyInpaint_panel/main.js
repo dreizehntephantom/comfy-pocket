@@ -352,6 +352,12 @@ async function generate() {
       neg_embedding: getVal("embedding"),          // "" = без эмбеддинга
       steps: Math.max(1, Math.round(num(getVal("steps"), 25))),
       cfg: num(getVal("cfg"), 5),
+      control: getVal("control") || "нет",          // "нет" = как раньше
+      control_src: getVal("controlSrc") || "canvas",
+      control_strength: num(getVal("controlStrength"), 0.6),
+      color: getVal("color") || "нет",
+      color_src: getVal("colorSrc") || "selection",
+      color_strength: num(getVal("colorStrength"), 1.5),
     };
     const seedText = getVal("seed").trim();
     const baseSeed = seedText ? parseInt(seedText, 10) : null;
@@ -444,10 +450,13 @@ $("cancel").addEventListener("click", async () => {
 // Храним файлом в папке данных плагина: гарантированный API, в отличие от
 // localStorage, которого в UXP может не оказаться.
 const REMEMBER = ["prompt", "negative", "model", "vae", "lora", "loraWeight", "embedding",
-                  "context", "target", "blend", "shape", "denoise", "steps", "cfg", "count"];
+                  "context", "target", "blend", "shape", "denoise", "steps", "cfg", "count",
+                  "control", "controlSrc", "controlStrength",
+                  "color", "colorSrc", "colorStrength"];
 
 // sp-textfield не читает value= из разметки — умолчания расставляем из кода
-const DEFAULTS = { denoise: "0.6", loraWeight: "0.8", steps: "25", cfg: "5" };
+const DEFAULTS = { denoise: "0.6", loraWeight: "0.8", steps: "25", cfg: "5",
+                   controlStrength: "0.6", colorStrength: "1.5" };
 
 async function loadSettings() {
   try {
@@ -546,10 +555,23 @@ async function init() {
   if (lists.lora_weight) setVal("loraWeight", lists.lora_weight);
   if (lists.steps) setVal("steps", lists.steps);
   if (lists.cfg) setVal("cfg", lists.cfg);
+  if (lists.depth_strength) setVal("controlStrength", lists.depth_strength);
+  if (lists.color_strength) setVal("colorStrength", lists.color_strength);
+
+  // Нет модели (или нод препроцессора) — пункт не предлагаем вовсе.
+  // Лучше пустой список, чем кнопка, которая падает на генерации.
+  for (const [id, val, have] of [["control", "depth", lists.depth_cn],
+                                 ["color", "color", lists.color_cn]]) {
+    if (have) continue;
+    const item = $(id).querySelector(`sp-menu-item[value="${val}"]`);
+    if (item) item.remove();
+    pick($(id), "нет");
+  }
 
   // ...а поверх — снова то, что ты выбирал в прошлый раз: списки приехали
   // только сейчас, до них выбрать в них было нечего
   applySaved();
+  showControl();
 
   const ping = await fetch(BRIDGE + "/ping").then((r) => r.json()).catch(() => null);
   if (ping && !ping.comfy) {
@@ -574,5 +596,18 @@ function showBlend() {
 $("blend").addEventListener("input", showBlend);
 $("blend").addEventListener("change", showBlend);
 showBlend();
+
+// Откуда снимать карту — вопрос осмысленный, только когда контроль включён.
+function showControl() {
+  const shape = getVal("control") === "depth";
+  $("controlSrc").disabled = !shape;
+  $("controlStrength").disabled = !shape;
+  const col = getVal("color") === "color";
+  $("colorSrc").disabled = !col;
+  $("colorStrength").disabled = !col;
+}
+$("control").addEventListener("change", showControl);
+$("color").addEventListener("change", showControl);
+showControl();
 
 init();
